@@ -1,0 +1,7 @@
+"ls -l | tail -n 2".
+question A : what does "ls -l" do, what does "tail -n 2" do, and what should their combination produce?
+answer: ls -l generates a detailed information on each of the files and folders in the current directory, 
+        such as permissions, Owner name, file size, last modified etc...
+        trail -n <num> outputs only the last <num> lines of an input.
+        so the combination ls -l | tail -n 2 will output detailed information of the 
+        last 2 files in alphanumeric order in the current-directory.
