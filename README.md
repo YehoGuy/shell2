@@ -51,3 +51,67 @@ This shell includes an optional **debug mode** (invoked with `-d`) which logs ch
 ├── LineParser.c      # LineParser - provided by the professor
 ├── README.md         # This README
 └── Makefile          # (Optional) For building
+## Installation & Compilation
+
+To compile and start the shell, run the following commands in the project directory:
+
+```sh
+make clean
+make
+./myshell
+```
+
+## Usage
+
+### Basic Commands
+
+You can run standard Unix commands like `ls`, `cat`, `echo`, etc., directly in the shell.
+
+```sh
+myshell> ls
+myshell> echo "Hello, World!"
+```
+
+### Built-in Commands
+
+The shell includes several built-in commands:
+
+- `cd <directory>`: Change the current directory.
+- `quit`: Exit the shell.
+- `history`: Display the last 10 commands entered.
+
+### History Feature
+
+The shell maintains a history of the last 10 commands. You can use:
+
+- `history`: List the last 10 commands.
+- `!!`: Repeat the last command.
+- `!n`: Re-run the n-th command from the history.
+
+### Process Management
+
+The shell supports process management commands:
+
+- `stop <pid>`: Stop a process with the given PID.
+- `wake <pid>`: Resume a stopped process with the given PID.
+- `term <pid>`: Terminate a process with the given PID.
+
+### Pipelining
+
+You can use the pipe (`|`) to pass the output of one command as input to another:
+
+```sh
+myshell> ls -l | tail -n 3 // will print info of the last 3 files by alphanumeric order in this folder
+```
+
+### Redirection
+
+The shell supports input and output redirection:
+
+- `<`: Redirect input from a file.
+- `>`: Redirect output to a file.
+
+```sh
+myshell> cat < input.txt
+myshell> echo "Hello" > output.txt
+```
