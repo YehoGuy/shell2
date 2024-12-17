@@ -12,9 +12,6 @@ A simple **C-based shell** implementation demonstrating process management, pipe
    - [Built-in Commands](#built-in-commands)
    - [History Feature](#history-feature)
    - [Process Management](#process-management)
-6. [Examples](#examples)
-7. [License](#license)
-
 ---
 
 ## Overview
