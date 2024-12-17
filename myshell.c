@@ -16,6 +16,155 @@ int debug_mode = 0;
 void execute(cmdLine *pCmdLine);
 void handle_signal_command(cmdLine *parsedLine);
 void handle_pipeline(cmdLine *pCmdLine); 
+void printCWD();
+
+// define process list
+#define TERMINATED  -1
+#define RUNNING 1
+#define SUSPENDED 0
+
+typedef struct process{
+        cmdLine* cmd;                         /* the parsed command line*/
+        pid_t pid; 		                  /* the process id that is running the command*/
+        int status;                           /* status of the process: RUNNING/SUSPENDED/TERMINATED */
+        struct process *next;	                  /* next process in chain */
+    } process;
+
+process *process_list = NULL; // Define process_list globally
+
+// function prototypes
+void addProcess(process** process_list, cmdLine* cmd, pid_t pid);
+void printProcessList(process** process_list);
+void freeProcessList(process* process_list);
+void updateProcessList(process **process_list);
+void updateProcessStatus(process* process_list, int pid, int status);
+void deleteProcess(process** process_list, pid_t pid);
+
+void addProcess(process** process_list, cmdLine* cmd, pid_t pid){
+    process* new_process = (process*)malloc(sizeof(process));
+    if (new_process == NULL) {
+        perror("Failed to allocate memory for new process");
+        exit(1); // Exit or handle gracefully
+    }
+    new_process->cmd = cmd;
+    new_process->pid = pid;
+    new_process->status = RUNNING;
+    new_process->next = NULL;
+    if(*process_list == NULL){
+        *process_list = new_process;
+    }else{
+        new_process->next = *process_list;
+        *process_list = new_process;
+    }
+}
+
+//TODO call freeProcessList in the end of the main
+void freeProcessList(process* process_list){
+    process *ptr = process_list;
+    process *next;
+    while(ptr != NULL) {
+        next = ptr->next;
+        freeCmdLines(ptr->cmd);
+        free(ptr);
+        ptr = next;
+    }
+}
+
+
+// This method checks the status of each process in the list using waitpid() with WNOHANG 
+// and updates the process state accordingly.
+void updateProcessList(process **process_list) {
+    // Start at first child process. Skip the parent process
+    process *current = *process_list; 
+    int status;                      
+
+    while (current->next != NULL) { //to not go over main process
+        // Use waitpid with WNOHANG to check the process status without blocking
+        pid_t result = waitpid(current->pid, &status, WNOHANG);
+
+        if (result == -1) { // likely because the process no longer exists
+            current->status = TERMINATED;
+        } else if (result > 0) { // A status change occurred
+            if (WIFEXITED(status) || WIFSIGNALED(status)) {
+                // Process has exited or was killed; mark as TERMINATED
+                current->status = TERMINATED;
+            } else if (WIFSTOPPED(status)) {
+                // Process is currently stopped; mark as SUSPENDED
+                current->status = SUSPENDED;
+            } else if (WIFCONTINUED(status)) {
+                // Process has continued (resumed execution); mark as RUNNING
+                current->status = RUNNING;
+            }
+        }
+        // Move to the next process in the list
+        current = current->next;
+    }
+}
+
+void updateProcessStatus(process* process_list, int pid, int status){
+    process *ptr = process_list;
+    while(ptr != NULL) {
+        if(ptr->pid == pid){
+            ptr->status = status;
+            return;
+        }
+        ptr = ptr->next;
+    }
+}
+
+
+void printProcessList(process **process_list) {
+    // Update process statuses before printing
+    updateProcessList(process_list);
+
+    process *ptr = *process_list; // Start at the head of the process list
+    int index = 0;               // Index counter for printing
+
+    while (ptr != NULL) {
+        // Print process details: index, PID, status, and the command
+        printf("Index: %d. PID: %d, Status: %d, Command: ", index, ptr->pid, ptr->status);
+        for (int i = 0; i < ptr->cmd->argCount; i++) {
+            printf("%s ", ptr->cmd->arguments[i]);
+        }
+        if(ptr->cmd->next!=NULL){
+            printf("| ");
+            for (int i = 0; i < ptr->cmd->next->argCount; i++) {
+                printf("%s ", ptr->cmd->next->arguments[i]);
+            }
+        }
+        printf("\n");
+        if(ptr->status == TERMINATED){
+            process *tmp = ptr;
+            ptr = ptr->next;
+            deleteProcess(process_list, tmp->pid);
+            continue;
+        } else{
+            ptr = ptr->next;
+        }
+        index++;         // Increment the index counter
+    }
+}
+
+void deleteProcess(process** process_list, pid_t pid){
+    process *ptr = *process_list;
+    process *prev = NULL;
+    while(ptr != NULL) {
+        if(ptr->pid == pid){
+            if(prev == NULL){
+                *process_list = ptr->next;
+            }else{
+                prev->next = ptr->next;
+            }
+            freeCmdLines(ptr->cmd);
+            free(ptr);
+            return;
+        }
+        prev = ptr;
+        ptr = ptr->next;
+    }
+}
+
+
 
 void execute(cmdLine *pCmdLine) {
     if (pCmdLine->next != NULL) {
@@ -117,7 +266,7 @@ void handle_pipeline(cmdLine *pCmdLine) {
         return;
     }
 
-    if (left_pid == 0) {
+    if (left_pid == 0){
         // Left-hand child process
         close(pipe_fd[0]); // Close the read-end (not used by left-hand process)
         close(STDOUT_FILENO); // Close stdout
@@ -125,7 +274,7 @@ void handle_pipeline(cmdLine *pCmdLine) {
         close(pipe_fd[1]); // Close the duplicated write-end
 
         // Execute the left-hand command
-        execvp(pCmdLine->arguments[0], pCmdLine->arguments);
+        execvp(pCmdLine->arguments[0], pCmdLine->arguments); //terminates child process after execution.
         perror("Execution failed for left-hand command");
         _exit(1); // Exit with error if exec fails
     }
@@ -137,7 +286,7 @@ void handle_pipeline(cmdLine *pCmdLine) {
         return;
     }
 
-    if (right_pid == 0) {
+    if (right_pid == 0){
         // Right-hand child process
         close(pipe_fd[1]); // Close the write-end (not used by right-hand process)
         close(STDIN_FILENO); // Close stdin
@@ -146,7 +295,7 @@ void handle_pipeline(cmdLine *pCmdLine) {
 
         // Execute the right-hand command
         printf("\n");
-        execvp(pCmdLine->next->arguments[0], pCmdLine->next->arguments);
+        execvp(pCmdLine->next->arguments[0], pCmdLine->next->arguments); //terminates child process after execution
         perror("Execution failed for right-hand command");
         _exit(1); // Exit with error if exec fails
     }
@@ -160,33 +309,43 @@ void handle_pipeline(cmdLine *pCmdLine) {
     waitpid(right_pid, NULL, 0);
 
     if (debug_mode) fprintf(stderr, "Parent: Finished waiting for child processes\n");
-
+    printCWD();
+    return;
 }
 
 
 
-
+void printCWD() {
+    char cwd[4096];
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        printf("%s> ", cwd);
+        fflush(stdout);
+    } else {
+        perror("getcwd() error");
+    }
+}
 
 
 int main(int argc, char **argv) {
-    char cwd[4096];                 // Buffer to store the current working directory
     char input[MAX_INPUT_SIZE];     // Buffer to store user input
     cmdLine *parsedLine;            // Parsed command structure
 
     // Check for debug mode (-d flag)
-    if (argc > 1 && strcmp(argv[1], "-d") == 0) {
+    if (argc > 1 && (strcmp(argv[1], "-d") == 0 || strcmp(argv[1], "-D") == 0)) {
         debug_mode = 1;
         fprintf(stderr, "Debug mode activated\n");
     }
 
+    // add current process:
+    if(debug_mode)
+        addProcess(&process_list, parseCmdLines("./myshell -d"), getpid());
+    else
+        addProcess(&process_list, parseCmdLines("./myshell"), getpid());
+
+        
     while (1) {
         // Display the prompt (current working directory)
-        if (getcwd(cwd, sizeof(cwd)) == NULL) {
-            perror("getcwd failed");
-            continue;
-        }
-        printf("%s> ", cwd);
-        fflush(stdout); // Ensure the prompt is immediately displayed
+        printCWD();
 
         // Read user input
         if (fgets(input, MAX_INPUT_SIZE, stdin) == NULL) {
@@ -206,6 +365,14 @@ int main(int argc, char **argv) {
             break;
         }
 
+        // TODO!! if we want to enable pipelining with procs
+        // the neeed to implement it with makeCmdLine and move this to
+        // execute and modify the if to cmdLine->arguments[0] == "procs"
+        if(strcspn(input, "procs") == 0){
+            printProcessList(&process_list);
+            continue;
+        }
+
         // Parse the command
         parsedLine = parseCmdLines(input);
         if (parsedLine == NULL) {
@@ -222,7 +389,6 @@ int main(int argc, char **argv) {
             } else if (debug_mode) {
                 fprintf(stderr, "Changed directory to: %s\n", parsedLine->arguments[1]);
             }
-            freeCmdLines(parsedLine); // Free the parsed command structure
             continue;
         }
 
@@ -231,7 +397,6 @@ int main(int argc, char **argv) {
             strcmp(parsedLine->arguments[0], "wake") == 0 ||
             strcmp(parsedLine->arguments[0], "term") == 0) {
             handle_signal_command(parsedLine);
-            freeCmdLines(parsedLine);
             continue;
         }
 
@@ -242,6 +407,12 @@ int main(int argc, char **argv) {
             freeCmdLines(parsedLine);
             continue;
         }
+        
+        if (pid!=0){
+            // add new child process to process list
+            addProcess(&process_list, parsedLine, pid);
+            if(debug_mode) fprintf(stderr, "process %d added to process list\n", pid);
+        }
 
         if (pid == 0) {
             // Child process: execute the command
@@ -251,17 +422,16 @@ int main(int argc, char **argv) {
         } else {
             // Parent process
             if (debug_mode) fprintf(stderr, "Parent process (PID: %d) forked child with PID: %d\n", getpid(), pid);
-
             // Wait for the child process if blocking
             if (parsedLine->blocking) {
                 waitpid(pid, NULL, 0);
                 if (debug_mode) fprintf(stderr, "Child process (PID: %d) terminated\n", pid);
             }
         }
-
-        // Free the parsed command structure
-        freeCmdLines(parsedLine);
+        
     }
 
+    // Free the process list before exiting
+    freeProcessList(process_list);
     return 0; // Exit shell successfully
 }
