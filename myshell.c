@@ -6,6 +6,7 @@
 #include "LineParser.h" 
 #include <signal.h> // Added for signal handling
 #include <fcntl.h>
+#include <ctype.h>
 
 
 #define MAX_INPUT_SIZE 2048
@@ -17,6 +18,91 @@ void execute(cmdLine *pCmdLine);
 void handle_signal_command(cmdLine *parsedLine);
 void handle_pipeline(cmdLine *pCmdLine); 
 void printCWD();
+
+// History!
+void addToHistory(const char *cmdLine);
+void printHistory();
+char* getHistoryCommand(int index);
+void freeHistory();
+
+#define HISTLEN 10
+// A node in the history linked list
+typedef struct historyNode {
+    char *cmdLine;                
+    struct historyNode *next;
+} historyNode;
+// Keep track of head, tail, and current history size
+// for O(1) insertions and deletions
+historyNode *historyHead = NULL;
+historyNode *historyTail = NULL;
+int historySize = 0;
+
+void addToHistory(const char *cmdLine) {
+    // Create new node
+    historyNode *newNode = (historyNode*)malloc(sizeof(historyNode));
+    newNode->cmdLine = strdup(cmdLine);  // store a copy
+    newNode->next = NULL;
+
+    // If empty list
+    if (!historyHead) {
+        historyHead = historyTail = newNode;
+        historySize = 1;
+        return;
+    }
+
+    // If we haven't reached HISTLEN yet
+    if (historySize < HISTLEN) {
+        historyTail->next = newNode;
+        historyTail = newNode;
+        historySize++;
+    } else {
+        // Remove oldest (head) to make room
+        historyNode *oldHead = historyHead;
+        historyHead = historyHead->next;
+        free(oldHead->cmdLine);
+        free(oldHead);
+
+        // Insert new command at the tail
+        historyTail->next = newNode;
+        historyTail = newNode;
+        // historySize remains HISTLEN
+    }
+}
+
+void printHistory() {
+    historyNode *curr = historyHead;
+    int idx = 1;
+    printf("Command History:\n");
+    while (curr) {
+        printf("%d: %s\n", idx, curr->cmdLine);
+        curr = curr->next;
+        idx++;
+    }
+}
+
+char* getHistoryCommand(int index) {
+    if (index < 1 || index > historySize) {
+        return NULL;
+    }
+    historyNode *curr = historyHead;
+    for (int i = 1; i < index; i++) {
+        curr = curr->next;  // move forward
+    }
+    return curr->cmdLine;  // no need to strdup here, just return the pointer
+}
+
+void freeHistory() {
+    historyNode *curr = historyHead;
+    while (curr) {
+        historyNode *next = curr->next;
+        free(curr->cmdLine);
+        free(curr);
+        curr = next;
+    }
+    historyHead = historyTail = NULL;
+    historySize = 0;
+}
+
 
 // define process list
 #define TERMINATED  -1
@@ -379,11 +465,45 @@ int main(int argc, char **argv) {
             break;
         }
 
-        // TODO!! if we want to enable pipelining with procs
-        // the neeed to implement it with makeCmdLine and move this to
-        // execute and modify the if to cmdLine->arguments[0] == "procs"
+    // handling commands with respect to history mechanism:
+        if (strcmp(input, "!!") == 0) {
+            // If no commands in history yet
+            if (historySize == 0) {
+                fprintf(stderr, "No commands in history\n");
+                continue;  // Skip the rest of the loop
+            }
+
+            char *lastCmd = getHistoryCommand(historySize);
+            if (!lastCmd) {
+                fprintf(stderr, "Error retrieving last command\n");
+                continue;
+            }
+            strcpy(input, lastCmd); // runtime copy
+        }
+
+        // handle !n command
+        if (input[0] == '!' && isdigit(input[1])) {
+            int n = atoi(&input[1]);   // parse the number after '!'
+
+            // Attempt to retrieve the nth command from history
+            char *histCmd = getHistoryCommand(n);
+            if (!histCmd) {
+                fprintf(stderr, "Error: no such entry in history\n");
+                continue;
+            }
+            strcpy(input, histCmd); 
+        }
+
+        // Add the command to history
+        addToHistory(input);
+
         if(strcspn(input, "procs") == 0){
             printProcessList(&process_list);
+            continue;
+        }
+
+        if(strcspn(input, "history") == 0){
+            printHistory();
             continue;
         }
 
@@ -447,5 +567,6 @@ int main(int argc, char **argv) {
 
     // Free the process list before exiting
     freeProcessList(process_list);
+    freeHistory();
     return 0; // Exit shell successfully
 }
