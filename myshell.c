@@ -80,7 +80,7 @@ void updateProcessList(process **process_list) {
 
     while (current->next != NULL) { //to not go over main process
         // Use waitpid with WNOHANG to check the process status without blocking
-        pid_t result = waitpid(current->pid, &status, WNOHANG);
+        pid_t result = waitpid(current->pid, &status, WNOHANG | WUNTRACED | WCONTINUED);
 
         if (result == -1) { // likely because the process no longer exists
             current->status = TERMINATED;
@@ -210,44 +210,58 @@ void execute(cmdLine *pCmdLine) {
     }
 }
 
-
+// updated for 3.c
 void handle_signal_command(cmdLine *parsedLine) {
     if (parsedLine->argCount < 2) {
         fprintf(stderr, "Error: Missing PID argument\n");
         return;
     }
 
-    int pid = atoi(parsedLine->arguments[1]); // Convert PID argument to an integer
+    // Convert PID argument to integer
+    int pid = atoi(parsedLine->arguments[1]);
     if (pid <= 0) {
         fprintf(stderr, "Error: Invalid PID\n");
         return;
     }
 
+    int killResult = 0;
+
     if (strcmp(parsedLine->arguments[0], "stop") == 0) {
-        // Send SIGSTOP signal
-        if (kill(pid, SIGSTOP) == -1) {
-            perror("Failed to send SIGSTOP");
-        } else if (debug_mode == 1) {
-            fprintf(stderr, "Sent SIGSTOP to process %d\n", pid);
+        // Send SIGTSTP (like Ctrl+Z)
+        killResult = kill(pid, SIGTSTP);
+        if (killResult == -1) {
+            perror("Failed to send SIGTSTP");
+        } else {
+            if (debug_mode) fprintf(stderr, "Sent SIGTSTP (stop) to process %d\n", pid);
+            updateProcessStatus(process_list, pid, SUSPENDED);
         }
-    } else if (strcmp(parsedLine->arguments[0], "wake") == 0) {
-        // Send SIGCONT signal
-        if (kill(pid, SIGCONT) == -1) {
-            perror("Failed to send SIGCONT");
-        } else if (debug_mode == 1) {
-            fprintf(stderr, "Sent SIGCONT to process %d\n", pid);
-        }
-    } else if (strcmp(parsedLine->arguments[0], "term") == 0) {
-        // Send SIGINT signal
-        if (kill(pid, SIGINT) == -1) {
+    } 
+    else if (strcmp(parsedLine->arguments[0], "term") == 0) {
+        // Send SIGINT (like Ctrl+C)
+        killResult = kill(pid, SIGINT);
+        if (killResult == -1) {
             perror("Failed to send SIGINT");
-        } else if (debug_mode == 1) {
-            fprintf(stderr, "Sent SIGINT to process %d\n", pid);
+        } else {
+            if (debug_mode) fprintf(stderr, "Sent SIGINT (term) to process %d\n", pid);
+            updateProcessStatus(process_list, pid, TERMINATED);
         }
-    } else {
+    } 
+    else if (strcmp(parsedLine->arguments[0], "wake") == 0) {
+        // Send SIGCONT
+        killResult = kill(pid, SIGCONT);
+        if (killResult == -1) {
+            perror("Failed to send SIGCONT");
+        } else {
+            if (debug_mode) fprintf(stderr, "Sent SIGCONT (wake) to process %d\n", pid);
+            updateProcessStatus(process_list, pid, RUNNING);
+        }
+    } 
+    else {
         fprintf(stderr, "Error: Unknown signal command\n");
     }
 }
+
+
 
 void handle_pipeline(cmdLine *pCmdLine) {
     int pipe_fd[2];
