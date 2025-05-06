@@ -1,6 +1,6 @@
 # My Shell Project
 
-A simple **C-based shell** implementation demonstrating process management, pipelining, memory management, and command history.
+A **C-based shell** implementation demonstrating process management, inter-process communictation using pipelining, memory management, and command history.
 
 ## Table of Contents
 1. [Overview](#overview)
